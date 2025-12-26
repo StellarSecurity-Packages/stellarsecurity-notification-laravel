@@ -19,8 +19,9 @@ php artisan vendor:publish --tag=stellar-notifications-config
 In your `.env`:
 
 ```env
-STELLAR_NOTIFICATION_API=URL
-STELLAR_NOTIFICATION_TOKEN=
+STELLAR_NOTIFICATION_API=https://your-notifications-api.example
+STELLAR_NOTIFICATIONS_BASIC_USERNAME=your-basic-username
+STELLAR_NOTIFICATIONS_BASIC_PASSWORD=your-basic-password
 STELLAR_NOTIFICATION_TIMEOUT=5
 ```
 
@@ -39,3 +40,4 @@ Notification::send(
         ->idempotencyKey('welcome-'.$user->id)
 );
 ```
+
