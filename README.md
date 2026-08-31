@@ -22,6 +22,7 @@ In your `.env`:
 STELLAR_NOTIFICATIONS_BASE_URL=https://your-notifications-api.example
 STELLAR_NOTIFICATIONS_BASIC_USERNAME=your-basic-username
 STELLAR_NOTIFICATIONS_BASIC_PASSWORD=your-basic-password
+STELLAR_NOTIFICATIONS_SERVICE_TOKEN=your-internal-service-token
 ```
 
 Optional HTTP settings. These defaults are already built into the package, even if you do not publish config:
@@ -67,4 +68,33 @@ Notification::send(
         ->payload(['app_name' => 'Stellar Antivirus'])
         ->idempotencyKey('welcome-'.$user->id)
 );
+```
+
+## Native push notifications
+
+Device registrations and push sends use the internal bearer credential. Raw
+device tokens are sent only to the Notification API and must not be logged or
+stored by the consuming application.
+
+```php
+use StellarSecurity\Notifications\DTO\PushNotification;
+use StellarSecurity\Notifications\DTO\PushSubscriptionRegistration;
+use StellarSecurity\Notifications\StellarNotificationClient;
+
+$client = app(StellarNotificationClient::class);
+$subscriptionId = $client->registerPushSubscription(
+    new PushSubscriptionRegistration(
+        application: 'stellar-esim',
+        platform: 'ios',
+        token: $deviceToken,
+        externalReference: $anonymousChatId,
+    ),
+);
+
+$client->sendPushNotification($subscriptionId, new PushNotification(
+    dedupeKey: 'support-message:'.$messageId,
+    title: 'Stellar Support replied',
+    body: 'Tap to view the conversation.',
+    data: ['type' => 'support_chat_reply', 'session_id' => $anonymousChatId],
+));
 ```

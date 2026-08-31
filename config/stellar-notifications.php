@@ -29,6 +29,9 @@ return [
     'basic_username' => env('STELLAR_NOTIFICATIONS_BASIC_USERNAME', ''),
     'basic_password' => env('STELLAR_NOTIFICATIONS_BASIC_PASSWORD', ''),
 
+    /* Bearer credential for internal push registration and delivery routes. */
+    'service_token' => env('STELLAR_NOTIFICATIONS_SERVICE_TOKEN', ''),
+
     /*
     |--------------------------------------------------------------------------
     | HTTP Client Options

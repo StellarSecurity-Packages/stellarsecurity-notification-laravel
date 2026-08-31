@@ -8,16 +8,23 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use StellarSecurity\Notifications\DTO\NotificationEvent;
+use StellarSecurity\Notifications\DTO\PushNotification;
+use StellarSecurity\Notifications\DTO\PushSubscriptionRegistration;
 use StellarSecurity\Notifications\Exceptions\NotificationException;
 use Throwable;
 
 class StellarNotificationClient
 {
     private const DEFAULT_TIMEOUT_SECONDS = 30;
+
     private const DEFAULT_CONNECT_TIMEOUT_SECONDS = 10;
+
     private const DEFAULT_RETRY_TIMES = 5;
+
     private const DEFAULT_RETRY_SLEEP_MS = 1000;
+
     private const DEFAULT_RETRY_MULTIPLIER = 2;
+
     private const DEFAULT_RETRY_MAX_SLEEP_MS = 10000;
 
     /**
@@ -49,17 +56,65 @@ class StellarNotificationClient
         }
 
         $base = rtrim($base, '/');
-        $url = $base . '/api/v1/notification-events/ingest';
+        $url = $base.'/api/v1/notification-events/ingest';
 
         $response = $this->makeRequest($username, $password)
             ->post($url, $event->toArray());
 
         if (! $response->successful()) {
-            throw new NotificationException('Notification API error: ' . $response->body());
+            throw new NotificationException('Notification API error: '.$response->body());
         }
     }
 
+    public function registerPushSubscription(PushSubscriptionRegistration $registration): string
+    {
+        $response = $this->pushRequest()->post(
+            $this->baseUrl().'/api/v1/internal/push/subscriptions',
+            $registration->toArray(),
+        );
+        $this->requireSuccess($response);
+        $id = (string) $response->json('id');
+        if ($id === '') {
+            throw new NotificationException('Notification API did not return a push subscription ID.');
+        }
+
+        return $id;
+    }
+
+    public function unregisterPushSubscription(string $subscriptionId): void
+    {
+        $response = $this->pushRequest()->delete(
+            $this->baseUrl().'/api/v1/internal/push/subscriptions/'.rawurlencode($subscriptionId),
+        );
+        $this->requireSuccess($response);
+    }
+
+    public function sendPushNotification(string $subscriptionId, PushNotification $notification): void
+    {
+        $response = $this->pushRequest()->post(
+            $this->baseUrl().'/api/v1/internal/push/subscriptions/'.rawurlencode($subscriptionId).'/notifications',
+            $notification->toArray(),
+        );
+        $this->requireSuccess($response);
+    }
+
     private function makeRequest(string $username, string $password): PendingRequest
+    {
+        return $this->request()
+            ->withBasicAuth($username, $password);
+    }
+
+    private function pushRequest(): PendingRequest
+    {
+        $token = (string) config('stellar-notifications.service_token', '');
+        if ($token === '') {
+            throw new NotificationException('stellar-notifications.service_token is not configured.');
+        }
+
+        return $this->request()->withToken($token);
+    }
+
+    private function request(): PendingRequest
     {
         return Http::timeout($this->intConfig('timeout', self::DEFAULT_TIMEOUT_SECONDS, 1))
             ->connectTimeout($this->intConfig('connect_timeout', self::DEFAULT_CONNECT_TIMEOUT_SECONDS, 1))
@@ -67,10 +122,27 @@ class StellarNotificationClient
                 $this->intConfig('retry.times', self::DEFAULT_RETRY_TIMES, 0),
                 fn (int $attempt, Throwable $exception): int => $this->retrySleepMilliseconds($attempt),
                 fn (Throwable $exception, PendingRequest $request): bool => $this->shouldRetry($exception),
-                true
+                true,
             )
-            ->withBasicAuth($username, $password)
-            ->acceptJson();
+            ->acceptJson()
+            ->asJson();
+    }
+
+    private function baseUrl(): string
+    {
+        $base = rtrim(trim((string) config('stellar-notifications.base_url', '')), '/');
+        if ($base === '') {
+            throw new NotificationException('stellar-notifications.base_url is not configured.');
+        }
+
+        return $base;
+    }
+
+    private function requireSuccess(Response $response): void
+    {
+        if (! $response->successful()) {
+            throw new NotificationException('Notification API error: '.$response->body());
+        }
     }
 
     private function shouldRetry(Throwable $exception): bool
@@ -81,6 +153,7 @@ class StellarNotificationClient
 
         if ($exception instanceof RequestException) {
             $response = $exception->response;
+
             return $response instanceof Response
                 && in_array($response->status(), self::RETRYABLE_STATUS_CODES, true);
         }
@@ -105,7 +178,7 @@ class StellarNotificationClient
 
     private function intConfig(string $key, int $default, int $min): int
     {
-        $value = config('stellar-notifications.' . $key, $default);
+        $value = config('stellar-notifications.'.$key, $default);
 
         if (! is_numeric($value)) {
             return $default;
